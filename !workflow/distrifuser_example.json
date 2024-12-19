@@ -1,49 +1,71 @@
 {
-  "last_node_id": 17,
+  "last_node_id": 18,
   "last_link_id": 16,
   "nodes": [
     {
-      "id": 14,
-      "type": "PreviewImage",
+      "id": 18,
+      "type": "DistrifuserPipelineLoader",
       "pos": [
-        525,
+        550,
         150
       ],
       "size": [
-        300,
-        450
+        315,
+        322
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "DISTRIFUSER_PIPELINE",
+          "type": "DISTRIFUSER_PIPELINE",
+          "links": [
+            16
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "DistrifuserPipelineLoader"
+      },
+      "widgets_values": [
+        "stable-diffusion-xl-base-1.0",
+        512,
+        768,
+        "dpmpp_2m",
+        3.5,
+        "SDXL",
+        "fp16",
+        2,
+        "patch",
+        false,
+        false,
+        1
+      ]
+    },
+    {
+      "id": 15,
+      "type": "DistrifuserSampler",
+      "pos": [
+        900,
+        150
+      ],
+      "size": [
+        400,
+        222
       ],
       "flags": {},
       "order": 1,
       "mode": 0,
       "inputs": [
         {
-          "name": "images",
-          "type": "IMAGE",
-          "link": 15
+          "name": "pipeline",
+          "type": "DISTRIFUSER_PIPELINE",
+          "link": 16
         }
       ],
-      "outputs": [],
-      "properties": {
-        "Node name for S&R": "PreviewImage"
-      },
-      "widgets_values": []
-    },
-    {
-      "id": 16,
-      "type": "DistrifuserSampler",
-      "pos": [
-        100,
-        150
-      ],
-      "size": [
-        400,
-        438
-      ],
-      "flags": {},
-      "order": 0,
-      "mode": 0,
-      "inputs": [],
       "outputs": [
         {
           "name": "IMAGE",
@@ -58,42 +80,68 @@
         "Node name for S&R": "DistrifuserSampler"
       },
       "widgets_values": [
-        "stable-diffusion-xl-base-1.0",
-        "outdoors, forest, scenic, waterfall, realistic, detailed",
-        "daytime, raining",
-        1618634407,
-        "randomize",
+        "forest, pond, waterfall, realistic",
+        "bright, day time, sunny",
+        1,
+        "fixed",
         40,
-        "euler",
-        8,
-        "fp16",
-        "SDXL",
-        768,
-        1280,
-        4,
-        "patch",
-        2
+        11
       ]
+    },
+    {
+      "id": 17,
+      "type": "PreviewImage",
+      "pos": [
+        1350,
+        150
+      ],
+      "size": [
+        225,
+        325
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 15
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      },
+      "widgets_values": []
     }
   ],
   "links": [
     [
       15,
-      16,
+      15,
       0,
-      14,
+      17,
       0,
       "IMAGE"
+    ],
+    [
+      16,
+      18,
+      0,
+      15,
+      0,
+      "DISTRIFUSER_PIPELINE"
     ]
   ],
   "groups": [],
   "config": {},
   "extra": {
     "ds": {
-      "scale": 1.0834705943389398,
+      "scale": 1.2100000000000002,
       "offset": [
-        -47.70632907631454,
-        -48.93364892318802
+        -472.1445867839697,
+        16.70757538379801
       ]
     }
   },
