@@ -1,0 +1,14 @@
+[project]
+name = "distrifuser_comfyui"
+description = "[a/Distrifuser](https://github.com/mit-han-lab/distrifuser) sampler node for ComfyUI\n"
+version = "1.0.0"
+license = {file = "LICENSE"}
+
+[project.urls]
+Repository = "https://github.com/SlackinJack/distrifuser_comfyui"
+#  Used by Comfy Registry https://comfyregistry.org
+
+[tool.comfy]
+PublisherId = ""
+DisplayName = "distrifuser_comfyui"
+Icon = ""
