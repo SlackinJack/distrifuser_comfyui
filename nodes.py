@@ -18,6 +18,9 @@ checkpoints_dir = os.path.join(os.path.join(comfy_root, "models"), "checkpoints"
 outputs_dir = os.path.join(comfy_root, "output")
 
 
+pipeline_process = None
+
+
 # TODO:
 # implement lora loader
 
@@ -87,6 +90,7 @@ class DistrifuserPipelineLoader:
                 ),
                 "variant": (
                     list([
+                        "bf16",
                         "fp16",
                         "fp32"
                     ]),
@@ -116,7 +120,7 @@ class DistrifuserPipelineLoader:
                 "low_vram": (
                     "BOOLEAN",
                     {
-                        "default": False,
+                        "default": True,
                     }
                 ),
                 "no_split_batch": (
@@ -171,7 +175,8 @@ class DistrifuserPipelineLoader:
         if no_split_batch:
             cmd.append('--no_split_batch')
 
-        process = subprocess.Popen(cmd)
+        global pipeline_process
+        pipeline_process = subprocess.Popen(cmd)
         host = 'http://localhost:6000'
         while True:
             try:
@@ -229,6 +234,12 @@ class DistrifuserSampler:
                         "max": 1024
                     }
                 ),
+                "shutdown_pipeline": (
+                    "BOOLEAN",
+                    {
+                        "default": True
+                    }
+                ),
             }
         }
 
@@ -237,19 +248,24 @@ class DistrifuserSampler:
     FUNCTION = "generate"
     CATEGORY = "Distrifuser"
 
-    def generate(self, pipeline, positive, negative, seed, steps, clip_skip):
+    def generate(self, pipeline, positive, negative, seed, steps, clip_skip, shutdown_pipeline):
+        global pipeline_process
+        if pipeline_process is None:
+            return (None,)
         url = pipeline
         data = {
             "positive_prompt": positive,  
             "negative_prompt": negative,          
             "num_inference_steps": steps,
             "seed": seed,
-            #"cfg": cfg,
             "clip_skip": clip_skip,
         }
         response = requests.post(url, json=data)
         response_data = response.json()
         output_base64 = response_data.get("output", "")
+        if shutdown_pipeline:
+            pipeline_process.terminate()
+            pipeline_process = None
         if output_base64:
             output_bytes = base64.b64decode(output_base64)
             output = pickle.loads(output_bytes)
