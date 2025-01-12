@@ -1,5 +1,3 @@
-# https://github.com/xdit-project/xDiT/blob/1c31746e2f903e791bc2a41a0bc23614958e46cd/comfyui-xdit/nodes.py
-
 import base64
 import os
 import pickle
@@ -18,20 +16,23 @@ checkpoints_dir = os.path.join(os.path.join(comfy_root, "models"), "checkpoints"
 outputs_dir = os.path.join(comfy_root, "output")
 
 
-pipeline_process = None
+host_address = 'http://localhost:6000'
+host_process = None
+host_address_generate = f'{host_address}/generate'
+host_address_initialize = f'{host_address}/initialize'
 
 
 # TODO:
 # implement lora loader
 
 
-class DistrifuserPipelineLoader:
+class DFPipelineConfig:
     @classmethod
     def INPUT_TYPES(s):
         models = [d for d in os.listdir(checkpoints_dir) if os.path.isdir(os.path.join(checkpoints_dir, d))]
         return {
             "required": {
-                "model": (models,), 
+                "model": (models,),
                 "width": (
                     "INT",
                     {
@@ -67,16 +68,6 @@ class DistrifuserPipelineLoader:
                     ]),
                     {
                         "default": "dpmpp_2m",
-                    }
-                ),
-                "cfg": (
-                    "FLOAT",
-                    {
-                        "default": 8.0,
-                        "min": 0.0,
-                        "max": 100.0,
-                        "step": 0.1,
-                        "round": 0.1
                     }
                 ),
                 "pipeline_type": (
@@ -117,12 +108,6 @@ class DistrifuserPipelineLoader:
                         "default": "patch",
                     }
                 ),
-                "low_vram": (
-                    "BOOLEAN",
-                    {
-                        "default": True,
-                    }
-                ),
                 "no_split_batch": (
                     "BOOLEAN",
                     {
@@ -138,64 +123,75 @@ class DistrifuserPipelineLoader:
                         "step": 1
                     }
                 ),
+                "enable_model_cpu_offload": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                    }
+                ),
+                "enable_sequential_cpu_offload": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                    }
+                ),
+                "enable_tiling": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                    }
+                ),
+                "enable_slicing": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                    }
+                ),
+                "xformers_efficient": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                    }
+                ),
             }
         }
 
-    RETURN_TYPES = ("DISTRIFUSER_PIPELINE",)
-    FUNCTION = "launch_host"
+    RETURN_TYPES = ("DF_CONFIG",)
+    FUNCTION = "get_config"
     CATEGORY = "Distrifuser"        
 
-    def launch_host(self, model, width, height, scheduler, cfg, pipeline_type, variant, nproc_per_node, parallelism, low_vram, no_split_batch, warmup_steps):
-        cmd = [
-            "torchrun",
-            f"--nproc_per_node={nproc_per_node}",
-            f"{cwd}/host.py",
-
-            f"--model_path={checkpoints_dir}/{model}",
-            f"--width={width}",
-            f"--height={height}",
-            f"--scheduler={scheduler}",
-            f"--guidance_scale={cfg}",
-            f"--pipeline_type={pipeline_type}",
-            f"--variant={variant}",
-            f"--parallelism={parallelism}",
-            f"--warmup_steps={warmup_steps}",
-            '--no_cuda_graph',
-            '--compel',
-        ]
-
-        if low_vram:
-            # cmd.append('--enable_model_cpu_offload')          # breaks parallelism
-            # cmd.append('--enable_sequential_cpu_offload')     # crash
-            cmd.append('--enable_tiling')
-            cmd.append('--enable_slicing')
-
-        # enable for more vram usage, and slower
-        # best to leave this disabled
-        if no_split_batch:
-            cmd.append('--no_split_batch')
-
-        global pipeline_process
-        pipeline_process = subprocess.Popen(cmd)
-        host = 'http://localhost:6000'
-        while True:
-            try:
-                response = requests.get(f'{host}/initialize')
-                if response.status_code == 200 and response.json().get("status") == "initialized":
-                    break
-            except requests.exceptions.RequestException:
-                pass
-            time.sleep(1)
-
-        return (f"{host}/generate", )
+    def get_config(
+        self, model, width, height, scheduler, pipeline_type, variant,
+        nproc_per_node, parallelism, no_split_batch, warmup_steps, enable_model_cpu_offload,
+        enable_sequential_cpu_offload, enable_tiling, enable_slicing, xformers_efficient
+    ):
+        return (
+            {
+                "model": model,
+                "width": width,
+                "height": height,
+                "scheduler": scheduler,
+                "pipeline_type": pipeline_type,
+                "variant": variant,
+                "nproc_per_node": nproc_per_node,
+                "parallelism": parallelism,
+                "no_split_batch": no_split_batch,
+                "warmup_steps": warmup_steps,
+                "enable_model_cpu_offload": enable_model_cpu_offload,
+                "enable_sequential_cpu_offload": enable_sequential_cpu_offload,
+                "enable_tiling": enable_tiling,
+                "enable_slicing": enable_slicing,
+                "xformers_efficient": xformers_efficient,
+            },
+        )
 
 
-class DistrifuserSampler:
+class DFSampler:
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
-                "pipeline": ("DISTRIFUSER_PIPELINE",),
+                "config": ("DF_CONFIG",),
                 "positive": (
                     "STRING",
                     {
@@ -226,6 +222,16 @@ class DistrifuserSampler:
                         "max": 1024
                     }
                 ),
+                "cfg": (
+                    "FLOAT",
+                    {
+                        "default": 8.0,
+                        "min": 0.0,
+                        "max": 100.0,
+                        "step": 0.1,
+                        "round": 0.1
+                    }
+                ),
                 "clip_skip": (
                     "INT",
                     {
@@ -234,38 +240,27 @@ class DistrifuserSampler:
                         "max": 1024
                     }
                 ),
-                "shutdown_pipeline": (
-                    "BOOLEAN",
-                    {
-                        "default": True
-                    }
-                ),
             }
         }
-
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "generate"
     CATEGORY = "Distrifuser"
 
-    def generate(self, pipeline, positive, negative, seed, steps, clip_skip, shutdown_pipeline):
-        global pipeline_process
-        if pipeline_process is None:
-            return (None,)
-        url = pipeline
+    def generate(self, config, positive, negative, seed, steps, cfg, clip_skip):
+        launch_host_process(config)
         data = {
             "positive_prompt": positive,  
             "negative_prompt": negative,          
             "num_inference_steps": steps,
             "seed": seed,
+            "cfg": cfg,
             "clip_skip": clip_skip,
         }
-        response = requests.post(url, json=data)
+        response = requests.post(host_address_generate, json=data)
         response_data = response.json()
-        output_base64 = response_data.get("output", "")
-        if shutdown_pipeline:
-            pipeline_process.terminate()
-            pipeline_process = None
+        output_base64 = response_data.get("output")
+        close_host_process()
         if output_base64:
             output_bytes = base64.b64decode(output_base64)
             output = pickle.loads(output_bytes)
@@ -274,19 +269,85 @@ class DistrifuserSampler:
             print("No image generated")
             return (None,)
         image = output.images[0]
-        tensor_image = ToTensor()(image)
-        tensor_image = tensor_image.unsqueeze(0)
-        tensor_image = tensor_image.permute(0, 2, 3, 1).cpu().float()
+        tensor_image = ToTensor()(image)                    # CHW
+        tensor_image = tensor_image.unsqueeze(0)            # CHW -> NCHW
+        tensor_image = tensor_image.permute(0, 2, 3, 1)     # NCHW -> NHWC
         return (tensor_image,)
 
 
+def launch_host_process(config):
+    global host_process
+
+    if host_process is not None:
+        close_host_process()
+
+    cmd = [
+        "torchrun",
+        f'--nproc_per_node={config.get("nproc_per_node")}',
+        f'{cwd}/host.py',
+
+        '--host_mode=comfyui',
+        f'--model_path={checkpoints_dir}/{config.get("model")}',
+        f'--width={config.get("width")}',
+        f'--height={config.get("height")}',
+        f'--scheduler={config.get("scheduler")}',
+        f'--pipeline_type={config.get("pipeline_type")}',
+        f'--variant={config.get("variant")}',
+        f'--parallelism={config.get("parallelism")}',
+        f'--warmup_steps={config.get("warmup_steps")}',
+        '--no_cuda_graph',
+        '--compel',
+    ]
+
+    if config.get("enable_model_cpu_offload"):
+        cmd.append('--enable_model_cpu_offload')
+
+    if config.get("enable_sequential_cpu_offload"):
+        cmd.append('--enable_sequential_cpu_offload')
+
+    if config.get("enable_tiling"):
+        cmd.append('--enable_tiling')
+
+    if config.get("enable_slicing"):
+        cmd.append('--enable_slicing')
+
+    if config.get("xformers_efficient"):
+        cmd.append('--xformers_efficient')
+
+    if config.get("no_split_batch"):
+        cmd.append('--no_split_batch')
+
+    host_process = subprocess.Popen(cmd)
+
+    connection_attempts = 0
+    while True:
+        try:
+            response = requests.get(host_address_initialize)
+            if response.status_code == 200 and response.json().get("status") == "initialized":
+                break
+        except requests.exceptions.RequestException:
+            pass
+        time.sleep(1)
+        connection_attempts += 1
+        if connection_attempts > 60:
+            assert False, "Failed to launch host. Check logs for details."
+
+
+def close_host_process():
+    global host_process
+    if host_process is not None:
+        host_process.terminate()
+        host_process = None
+    return
+
+
 NODE_CLASS_MAPPINGS = {
-    "DistrifuserPipelineLoader": DistrifuserPipelineLoader,
-    "DistrifuserSampler": DistrifuserSampler,
+    "DFPipelineConfig": DFPipelineConfig,
+    "DFSampler": DFSampler,
 }
 
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "DistrifuserPipelineLoader": "DistrifuserPipelineLoader",
-    "DistrifuserSampler": "DistrifuserSampler",
+    "DFPipelineConfig": "DFPipelineConfig",
+    "DFSampler": "DFSampler",
 }

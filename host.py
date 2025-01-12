@@ -1,12 +1,9 @@
-# https://github.com/xdit-project/xDiT/blob/1c31746e2f903e791bc2a41a0bc23614958e46cd/comfyui-xdit/host.py
-
 import argparse
 import os
 import time
 import torch
 import torch.distributed as dist
 import pickle
-import io
 import json
 import logging
 import base64
@@ -88,38 +85,21 @@ def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
 
     # Diffuser specific arguments
-    parser.add_argument("--num_inference_steps", type=int, default=50, help="Number of inference steps")
-    parser.add_argument("--guidance_scale", type=float, default=5.0)
+    # parser.add_argument("--num_inference_steps", type=int, default=50, help="Number of inference steps")
+    # parser.add_argument("--guidance_scale", type=float, default=5.0)
     parser.add_argument("--scheduler", type=str, default="dpmpp_2m", help="Scheduler name")
-    parser.add_argument("--seed", type=int, default=1234, help="Random seed")
+    # parser.add_argument("--seed", type=int, default=1234, help="Random seed")
 
     # DistriFuser specific arguments
     parser.add_argument("--no_split_batch", action="store_true", help="Disable the batch splitting for classifier-free guidance")
     parser.add_argument("--warmup_steps", type=int, default=4, help="Number of warmup steps")
-    parser.add_argument(
-        "--sync_mode",
-        type=str,
-        default="corrected_async_gn",
-        choices=["separate_gn", "stale_gn", "corrected_async_gn", "sync_gn", "full_sync", "no_sync"],
-        help="Different GroupNorm synchronization modes",
-    )
-    parser.add_argument(
-        "--parallelism",
-        type=str,
-        default="patch",
-        choices=["patch", "tensor", "naive_patch"],
-        help="patch parallelism, tensor parallelism or naive patch",
-    )
+    parser.add_argument("--sync_mode", type=str, default="corrected_async_gn", choices=["separate_gn", "stale_gn", "corrected_async_gn", "sync_gn", "full_sync", "no_sync"], help="Different GroupNorm synchronization modes")
+    parser.add_argument("--parallelism", type=str, default="patch", choices=["patch", "tensor", "naive_patch"], help="patch parallelism, tensor parallelism or naive patch")
     parser.add_argument("--no_cuda_graph", action="store_true", help="Disable CUDA graph")
-    parser.add_argument(
-        "--split_scheme",
-        type=str,
-        default="alternate",
-        choices=["row", "col", "alternate"],
-        help="Split scheme for naive patch",
-    )
+    parser.add_argument("--split_scheme", type=str, default="alternate", choices=["row", "col", "alternate"], help="Split scheme for naive patch")
 
     # Added arguments
+    parser.add_argument("--host_mode", type=str, default=None, choices=["comfyui", "localai"], help="Host operation mode")
     parser.add_argument("--model_path", type=str, default=None, help="Path to model folder")
     parser.add_argument("--height", type=int, default=512, help="Image height")
     parser.add_argument("--width", type=int, default=512, help="Image width")
@@ -131,6 +111,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--enable_sequential_cpu_offload", action="store_true")
     parser.add_argument("--enable_tiling", action="store_true")
     parser.add_argument("--enable_slicing", action="store_true")
+    parser.add_argument("--xformers_efficient", action="store_true")
     args = parser.parse_args()
     return args
 
@@ -193,21 +174,9 @@ def initialize():
     logger.info(f"Initializing model on GPU: {torch.cuda.current_device()}")
 
     args = get_args()
+    assert args.host_mode is not None, "Please specify a host operation mode."
     assert (args.height > 0 and args.width > 0), "Invalid image dimensions"
-    distri_config = DistriConfig(
-        height=args.height,
-        width=args.width,
-        do_classifier_free_guidance=args.guidance_scale > 1,
-        split_batch=not args.no_split_batch,
-        warmup_steps=args.warmup_steps,
-        mode=args.sync_mode,
-        use_cuda_graph=not args.no_cuda_graph,
-        parallelism=args.parallelism,
-        split_scheme=args.split_scheme,
-    )
-
     assert args.model_path is not None, "No model specified"
-
     assert args.variant in ["bf16", "fp16", "fp32"], "Unsupported variant"
     match args.variant:
         case "bf16":
@@ -216,6 +185,18 @@ def initialize():
             torch_dtype = torch.float16
         case _:
             torch_dtype = torch.float32
+
+    distri_config = DistriConfig(
+        height=args.height,
+        width=args.width,
+        do_classifier_free_guidance=True,
+        split_batch=not args.no_split_batch,
+        warmup_steps=args.warmup_steps,
+        mode=args.sync_mode,
+        use_cuda_graph=not args.no_cuda_graph,
+        parallelism=args.parallelism,
+        split_scheme=args.split_scheme,
+    )
 
     assert args.pipeline_type in ["SD", "SDXL"], "Unsupported pipeline"
     PipelineClass = DistriSDXLPipeline if args.pipeline_type == "SDXL" else DistriSDPipeline
@@ -236,7 +217,8 @@ def initialize():
         pipe.pipeline.enable_model_cpu_offload()
     if args.enable_sequential_cpu_offload:
         pipe.pipeline.enable_sequential_cpu_offload()
-    # pipe.pipeline.enable_xformers_memory_efficient_attention()
+    if args.xformers_efficient:
+        pipe.pipeline.enable_xformers_memory_efficient_attention()
 
     pipe.set_progress_bar_config(disable=distri_config.rank != 0)
 
@@ -378,6 +360,7 @@ def generate_image():
         f"cfg={cfg}\n"
         f"clip_skip={clip_skip}"
     )
+
     # Broadcast request parameters to all processes
     params = [positive_prompt, negative_prompt, num_inference_steps, seed, cfg, clip_skip]
     dist.broadcast_object_list(params, src=0)
