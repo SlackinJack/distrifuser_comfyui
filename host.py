@@ -44,16 +44,14 @@ initialized = False
 
 
 def get_scheduler(scheduler_name, current_scheduler_config):
-    scheduler_class = get_scheduler_class(scheduler_name)
     scheduler_config = get_scheduler_config(scheduler_name, current_scheduler_config)
+    scheduler_class = get_scheduler_class(scheduler_name)
     return scheduler_class.from_config(scheduler_config)
 
 
 def get_scheduler_class(scheduler_name):
-    if scheduler_name.startswith("k_"):
-        scheduler_name.replace("k_", "", 1)
-
-    match scheduler_name:
+    name = scheduler_name.replace("k_", "", 1)
+    match name:
         case "ddim":            return DDIMScheduler
         case "euler":           return EulerDiscreteScheduler
         case "euler_a":         return EulerAncestralDiscreteScheduler
@@ -70,9 +68,11 @@ def get_scheduler_class(scheduler_name):
 
 
 def get_scheduler_config(scheduler_name, current_scheduler_config):
-    if scheduler_name.startswith("k_"):
+    name = scheduler_name
+    if name.startswith("k_"):
         current_scheduler_config["use_karras_sigmas"] = True
-    match scheduler_name:
+        name = scheduler_name.replace("k_", "", 1)
+    match name:
         case "dpmpp_2m":
             current_scheduler_config["algorithm_type"] = "dpmsolver++"
             current_scheduler_config["solver_order"] = 2
@@ -99,6 +99,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--split_scheme", type=str, default="alternate", choices=["row", "col", "alternate"], help="Split scheme for naive patch")
 
     # Added arguments
+    parser.add_argument("--port", type=int, default=6000, help="Listening port number")
     parser.add_argument("--host_mode", type=str, default=None, choices=["comfyui", "localai"], help="Host operation mode")
     parser.add_argument("--model_path", type=str, default=None, help="Path to model folder")
     parser.add_argument("--height", type=int, default=512, help="Image height")
@@ -280,6 +281,15 @@ def generate_image_parallel(
     positive_prompt, negative_prompt, num_inference_steps, seed, cfg, clip_skip
 ):
     global pipe, local_rank, input_config
+    logger.info(
+        "Active request parameters:\n"
+        f"positive_prompt={positive_prompt}\n"
+        f"negative_prompt={negative_prompt}\n"
+        f"steps={num_inference_steps}\n"
+        f"seed={seed}\n"
+        f"cfg={cfg}\n"
+        f"clip_skip={clip_skip}\n"
+    )
     logger.info(f"Starting image generation with prompt: {positive_prompt}")
     logger.info(f"Negative: {negative_prompt}")
     torch.cuda.reset_peak_memory_stats()
@@ -305,7 +315,7 @@ def generate_image_parallel(
     output = pipe(
         prompt=positive_prompt if positive_embeds is None else None,
         negative_prompt=negative_prompt if negative_embeds is None else None,
-        generator=torch.Generator(device="cuda").manual_seed(seed),
+        generator=torch.manual_seed(seed),
         num_inference_steps=num_inference_steps,
         guidance_scale=cfg,
         clip_skip=clip_skip,
@@ -387,9 +397,10 @@ def generate_image():
 
 
 def run_host():
+    args = get_args()
     if dist.get_rank() == 0:
         logger.info("Starting Flask host on rank 0")
-        app.run(host="0.0.0.0", port=6000)
+        app.run(host="0.0.0.0", port=args.port)
     else:
         while True:
             params = [None] * 6 # len(params) of generate_image_parallel()

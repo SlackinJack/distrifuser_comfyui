@@ -10,16 +10,42 @@ from PIL import Image
 from torchvision.transforms import ToTensor
 
 
-cwd = os.path.dirname(__file__)
-comfy_root = os.path.dirname(os.path.dirname(cwd))
-checkpoints_dir = os.path.join(os.path.join(comfy_root, "models"), "checkpoints")
-outputs_dir = os.path.join(comfy_root, "output")
-
-
 host_address = 'http://localhost:6000'
 host_process = None
 host_address_generate = f'{host_address}/generate'
 host_address_initialize = f'{host_address}/initialize'
+
+
+cwd = os.path.dirname(__file__)
+comfy_root = os.path.dirname(os.path.dirname(cwd))
+checkpoints_dir = os.path.join(os.path.join(comfy_root, "models"), "checkpoints")
+outputs_dir = os.path.join(comfy_root, "output")
+models = [d for d in os.listdir(checkpoints_dir) if os.path.isdir(os.path.join(checkpoints_dir, d))]
+
+
+INT_MAX = 2 ** 32 - 1
+INT_MIN = -1 * INT_MAX
+CONFIG =                ("DF_CONFIG",)
+BOOLEAN_DEFAULT_FALSE = ("BOOLEAN", { "default": False })
+MODEL_LIST =            (models,)
+
+
+SCHEDULERS = (
+    list(["ddim", "euler", "euler_a", "dpm_2", "dpm_2_a", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_sde", "heun", "lms", "pndm", "unipc"]),
+    { "default": "dpmpp_2m" }
+)
+PIPELINE_TYPE =         (["SD", "SDXL"],                        { "default": "SDXL" })
+VARIANT =               (["bf16", "fp16", "fp32"],              { "default": "fp16" })
+PARALLELISM =           (["naive_patch", "patch", "tensor"],    { "default": "patch" })
+NPROC_PER_NODE =        ("INT",                                 { "default": 2,     "min": 1,       "max": INT_MAX, "step": 1 })
+
+
+PROMPT =                ("STRING",                              { "default": "",    "multiline": True })
+RESOLUTION =            ("INT",                                 { "default": 512,   "min": 8,       "max": INT_MAX, "step": 8 })
+SEED =                  ("INT",                                 { "default": 0,     "min": 0,       "max": INT_MAX, "step": 1 })
+STEPS =                 ("INT",                                 { "default": 60,    "min": 1,       "max": INT_MAX, "step": 1 })
+CFG =                   ("FLOAT",                               { "default": 3.5,   "min": 0,       "max": INT_MAX, "step": 0.1 })
+CLIP_SKIP =             ("INT",                                 { "default": 1,     "min": 0,       "max": INT_MAX, "step": 1 })
 
 
 # TODO:
@@ -32,127 +58,20 @@ class DFPipelineConfig:
         models = [d for d in os.listdir(checkpoints_dir) if os.path.isdir(os.path.join(checkpoints_dir, d))]
         return {
             "required": {
-                "model": (models,),
-                "width": (
-                    "INT",
-                    {
-                        "default": 512,
-                        "min": 0,
-                        "max": 8192,
-                        "step": 8
-                    }
-                ),
-                "height": (
-                    "INT",
-                    {
-                        "default": 512,
-                        "min": 0,
-                        "max": 8192,
-                        "step": 8
-                    }
-                ),
-                "scheduler": (
-                    list([
-                        "ddim",
-                        "euler",
-                        "euler_a",
-                        "dpm_2",
-                        "dpm_2_a",
-                        "dpmpp_2m",
-                        "dpmpp_2m_sde",
-                        "dpmpp_sde",
-                        "heun",
-                        "lms",
-                        "pndm",
-                        "unipc",
-                    ]),
-                    {
-                        "default": "dpmpp_2m",
-                    }
-                ),
-                "pipeline_type": (
-                    list([
-                        "SD",
-                        "SDXL"
-                    ]),
-                    {
-                        "default": "SDXL",
-                    }
-                ),
-                "variant": (
-                    list([
-                        "bf16",
-                        "fp16",
-                        "fp32"
-                    ]),
-                    {
-                        "default": "fp16",
-                    }
-                ),
-                "nproc_per_node": (
-                    "INT",
-                    {
-                        "default": 2,
-                        "min": 1,
-                        "max": 8192,
-                        "step": 1
-                    }
-                ),
-                "parallelism": (
-                    list([
-                        "naive_patch",
-                        "patch",
-                        "tensor",
-                    ]),
-                    {
-                        "default": "patch",
-                    }
-                ),
-                "no_split_batch": (
-                    "BOOLEAN",
-                    {
-                        "default": False,
-                    }
-                ),
-                "warmup_steps": (
-                    "INT",
-                    {
-                        "default": 4,
-                        "min": 0,
-                        "max": 32,
-                        "step": 1
-                    }
-                ),
-                "enable_model_cpu_offload": (
-                    "BOOLEAN",
-                    {
-                        "default": False,
-                    }
-                ),
-                "enable_sequential_cpu_offload": (
-                    "BOOLEAN",
-                    {
-                        "default": False,
-                    }
-                ),
-                "enable_tiling": (
-                    "BOOLEAN",
-                    {
-                        "default": False,
-                    }
-                ),
-                "enable_slicing": (
-                    "BOOLEAN",
-                    {
-                        "default": False,
-                    }
-                ),
-                "xformers_efficient": (
-                    "BOOLEAN",
-                    {
-                        "default": False,
-                    }
-                ),
+                "model":                            MODEL_LIST,
+                "width":                            RESOLUTION,
+                "height":                           RESOLUTION,
+                "scheduler":                        SCHEDULERS,
+                "pipeline_type":                    PIPELINE_TYPE,
+                "variant":                          VARIANT,
+                "nproc_per_node":                   NPROC_PER_NODE,
+                "parallelism":                      PARALLELISM,
+                "no_split_batch":                   BOOLEAN_DEFAULT_FALSE,
+                "enable_model_cpu_offload":         BOOLEAN_DEFAULT_FALSE,
+                "enable_sequential_cpu_offload":    BOOLEAN_DEFAULT_FALSE,
+                "enable_tiling":                    BOOLEAN_DEFAULT_FALSE,
+                "enable_slicing":                   BOOLEAN_DEFAULT_FALSE,
+                "xformers_efficient":               BOOLEAN_DEFAULT_FALSE,
             }
         }
 
@@ -162,7 +81,7 @@ class DFPipelineConfig:
 
     def get_config(
         self, model, width, height, scheduler, pipeline_type, variant,
-        nproc_per_node, parallelism, no_split_batch, warmup_steps, enable_model_cpu_offload,
+        nproc_per_node, parallelism, no_split_batch, enable_model_cpu_offload,
         enable_sequential_cpu_offload, enable_tiling, enable_slicing, xformers_efficient
     ):
         return (
@@ -176,7 +95,7 @@ class DFPipelineConfig:
                 "nproc_per_node": nproc_per_node,
                 "parallelism": parallelism,
                 "no_split_batch": no_split_batch,
-                "warmup_steps": warmup_steps,
+                "warmup_steps": 10,
                 "enable_model_cpu_offload": enable_model_cpu_offload,
                 "enable_sequential_cpu_offload": enable_sequential_cpu_offload,
                 "enable_tiling": enable_tiling,
@@ -191,55 +110,13 @@ class DFSampler:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "config": ("DF_CONFIG",),
-                "positive": (
-                    "STRING",
-                    {
-                        "multiline": True,
-                        "default": ""
-                    }
-                ),
-                "negative": (
-                    "STRING",
-                    {
-                        "multiline": True,
-                        "default": ""
-                    }
-                ),
-                "seed": (
-                    "INT",
-                    {
-                        "default": 0,
-                        "min": 0,
-                        "max": 2 ** 32 - 1
-                    }
-                ),
-                "steps": (
-                    "INT",
-                    {
-                        "default": 30,
-                        "min": 1,
-                        "max": 1024
-                    }
-                ),
-                "cfg": (
-                    "FLOAT",
-                    {
-                        "default": 8.0,
-                        "min": 0.0,
-                        "max": 100.0,
-                        "step": 0.1,
-                        "round": 0.1
-                    }
-                ),
-                "clip_skip": (
-                    "INT",
-                    {
-                        "default": 1,
-                        "min": 0,
-                        "max": 1024
-                    }
-                ),
+                "config":       CONFIG,
+                "positive":     PROMPT,
+                "negative":     PROMPT,
+                "seed":         SEED,
+                "steps":        STEPS,
+                "cfg":          CFG,
+                "clip_skip":    CLIP_SKIP,
             }
         }
 
